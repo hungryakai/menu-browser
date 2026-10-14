@@ -430,14 +430,52 @@ async function readShared(hash) {
 }
 const rnameFor = (slug) => { const r = ALL.find((x) => x.restaurant_slug === slug); return r ? r.restaurant_name : slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()); };
 let DATA_READY = false;
+/* ---------- Text receipt (for "Copy as text" and "Share bill") ----------
+   A boxed receipt made of | _ and - . Chat apps only line the columns up in a monospace font, so the receipt is wrapped in ``` (WhatsApp,
+   Telegram, Slack and Discord show that as monospace). Set TEXT_RECEIPT_FENCE to false to copy the plain box without the ``` lines. */
+const RECEIPT_WIDTH = 32;            // characters between the two | edges; the whole box is 2 wider
+const TEXT_RECEIPT_FENCE = true;
+const cw = (ch) => { const c = ch.codePointAt(0); return (c >= 0x300 && c <= 0x36f) || c === 0x200d || (c >= 0xfe00 && c <= 0xfe0f) ? 0 : (c >= 0x1100 && (c <= 0x115f || (c >= 0x2e80 && c <= 0xa4cf) || (c >= 0xac00 && c <= 0xd7a3) || (c >= 0xf900 && c <= 0xfaff) || (c >= 0xfe30 && c <= 0xfe6f) || (c >= 0xff00 && c <= 0xff60) || (c >= 0xffe0 && c <= 0xffe6) || (c >= 0x1f300 && c <= 0x1faff))) ? 2 : 1; };   // CJK characters and emoji take two columns
+const sw = (str) => [...str].reduce((n, ch) => n + cw(ch), 0);
+const padR = (str, n) => str + " ".repeat(Math.max(0, n - sw(str)));
+function wrapText(str, n, nRest = n) {               // n = width of the first line, nRest = width of the lines after it
+  const out = []; let line = ""; const lim = () => (out.length ? nRest : n);
+  for (const word of String(str).split(/\s+/).filter(Boolean)) {
+    let chars = [...word];
+    while (sw(chars.join("")) > lim()) {                   // a single word longer than the line is cut
+      if (line) { out.push(line); line = ""; }
+      let part = "", used = 0, i = 0;
+      for (; i < chars.length; i++) { const k = cw(chars[i]); if (used + k > lim()) break; part += chars[i]; used += k; }
+      if (i === 0) { part = chars[0]; i = 1; }
+      out.push(part); chars = chars.slice(i);
+    }
+    const w = chars.join(""); if (!w) continue;
+    if (!line) line = w; else if (sw(line) + 1 + sw(w) <= lim()) line += " " + w; else { out.push(line); line = w; }
+  }
+  if (line) out.push(line);
+  return out.length ? out : [""];
+}
 function billText() {
-  const t = billSums(), L = [`My bill at ${CART.rname}`, ""];
-  for (const l of CART.lines) L.push(`${l.qty} × ${l.name}${l.label ? " (" + l.label + ")" : ""}  ${money(l.cents * l.qty)}`);
-  L.push("", `Subtotal  ${money(t.sub)}`);
-  if (t.r.service) L.push(`Service charge ${pct(t.r.service)}  ${money(t.svc)}`);
-  if (t.r.gst) L.push(`GST ${pct(t.r.gst)}  ${money(t.gst)}`);
-  L.push(`Estimated total  ${money(t.total)}`, "", "Estimate only, based on menu prices.");
-  return L.join("\n");
+  const t = billSums(), W = RECEIPT_WIDTH, C = W - 4, clean = (x) => String(x).replace(/`/g, "'");
+  const row = (str) => "|  " + padR(str, C) + "  |";
+  const pair = (l, r) => row(padR(l, C - sw(r)) + r);
+  const rule = row("-".repeat(C));
+  const L = [" " + "_".repeat(W) + " ", "|" + " ".repeat(W) + "|"];
+  for (const x of wrapText(clean(CART.rname), C)) L.push(row(x));
+  L.push(row("My bill, " + fmtDate(Date.now())), rule);
+  for (const l of CART.lines) {
+    const price = money(l.cents * l.qty), label = clean(`${l.qty} x ${l.name}${l.label ? " (" + l.label + ")" : ""}`);
+    if (sw(label) + 2 + sw(price) <= C) L.push(pair(label, price));
+    else { wrapText(label, C, C - 4).forEach((x, i) => L.push(row(i ? "    " + x : x))); L.push(pair("", price)); }
+  }
+  L.push(rule, pair("Subtotal", money(t.sub)));
+  if (t.r.service) L.push(pair("Service charge " + pct(t.r.service), money(t.svc)));
+  if (t.r.gst) L.push(pair("GST " + pct(t.r.gst), money(t.gst)));
+  L.push(rule, pair("ESTIMATED TOTAL", money(t.total)), rule);
+  L.push(row("Estimate only (menu prices)."));
+  L.push("|" + "_".repeat(W) + "|");
+  const box = L.join("\n");
+  return TEXT_RECEIPT_FENCE ? "```\n" + box + "\n```" : box;
 }
 async function copyText(txt) {
   try { await navigator.clipboard.writeText(txt); return true; } catch {}
