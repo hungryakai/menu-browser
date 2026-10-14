@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Menu Browser</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#FAF6EF; --card:#FFFFFF; --line:#E4DBCB; --text:#241F1C; --muted:#7A6E5C;
+    --accent:#8A3A3A; --accent-soft:#F3E1DC; --warn:#8C6222;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#1C1917; --card:#241F1C; --line:#38322D; --text:#F2EDE4; --muted:#A89A87;
+      --accent:#B85C5C; --accent-soft:#3A2422; --warn:#D4A54B;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#1C1917; --card:#241F1C; --line:#38322D; --text:#F2EDE4; --muted:#A89A87;
+    --accent:#B85C5C; --accent-soft:#3A2422; --warn:#D4A54B;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:820px;margin:0 auto;padding:40px 16px 80px}
+  h1{font-family:Fraunces,serif;font-weight:500;font-size:clamp(30px,6vw,44px);margin:0 0 6px;line-height:1.05}
+  .sub{color:var(--muted);font-size:15px;line-height:1.5;max-width:60ch;margin:0 0 4px}
+  .controls{position:sticky;top:0;z-index:5;background:var(--bg);padding:14px 0 10px;border-bottom:1px solid var(--line);margin-top:20px}
+  .search{width:100%;padding:12px 14px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit;font-size:16px}
+  .search:focus{outline:2px solid var(--accent);outline-offset:1px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center}
+  .chip{padding:7px 13px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--muted);font:inherit;font-size:13.5px;cursor:pointer;text-transform:capitalize}
+  .chip:hover{border-color:var(--accent);color:var(--text)}
+  .chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden;margin-left:auto}
+  .seg button{border:0;background:transparent;color:var(--muted);padding:7px 14px;font:inherit;font-size:13.5px;cursor:pointer}
+  .seg button[aria-pressed="true"]{background:var(--accent-soft);color:var(--text);font-weight:500}
+  .count{color:var(--muted);font-size:13px;margin:14px 0 6px}
+  details.rest{background:var(--card);border:1px solid var(--line);border-radius:12px;margin:10px 0;overflow:hidden}
+  details.rest>summary{list-style:none;cursor:pointer;padding:16px 16px;display:flex;gap:12px;align-items:baseline;flex-wrap:wrap}
+  details.rest>summary::-webkit-details-marker{display:none}
+  details.rest>summary:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+  .rname{font-family:Fraunces,serif;font-size:21px;font-weight:500}
+  .tags{display:flex;gap:6px;flex-wrap:wrap}
+  .tag{font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:2px 9px;text-transform:capitalize}
+  .meta{margin-left:auto;font-size:12.5px;color:var(--muted);white-space:nowrap}
+  .body{padding:0 16px 14px}
+  .menuhead{margin:18px 0 0;padding-bottom:6px;border-bottom:2px solid var(--accent);display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:baseline}
+  .menuhead h3{margin:0;font-family:Fraunces,serif;font-weight:500;font-size:18px;text-transform:capitalize}
+  .menuhead .small{font-size:12px;color:var(--muted)}
+  .stale{color:var(--warn);border:1px solid var(--warn);border-radius:4px;padding:0 5px;margin-left:6px}
+  .sect{font-size:12.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:16px 0 2px;font-weight:600}
+  .dish{display:flex;justify-content:space-between;gap:16px;padding:11px 0;border-bottom:1px solid var(--line)}
+  .dish:last-child{border-bottom:0}
+  .dn{font-size:15.5px;font-weight:500}
+  .dd{font-size:13.5px;color:var(--muted);margin-top:2px;line-height:1.45}
+  .dp{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap;font-size:15px}
+  .dm{font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:0 5px;margin-left:6px;vertical-align:middle;text-transform:capitalize}
+  .branch{margin:26px 0 0;padding:6px 10px;background:var(--accent-soft);border-radius:8px;font-family:Fraunces,serif;font-size:17px;font-weight:500}
+  .branch .small{font-family:Inter,sans-serif;font-size:12px;color:var(--muted);font-weight:400}
+  .addons .dn{font-weight:400;font-size:14px}
+  .empty,.err{color:var(--muted);text-align:center;padding:40px 0}
+  .err{color:var(--warn)}
+  .more{margin:10px 0}
+  footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--line);color:var(--muted);font-size:12.5px;line-height:1.6}
+  footer a{color:var(--accent)}
+  mark{background:var(--accent-soft);color:inherit;border-radius:3px;padding:0 1px}
+  @media (max-width:520px){.meta{margin-left:0;width:100%}.seg{margin-left:0}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Menu Browser</h1>
+  <p class="sub">Restaurant menus in one searchable place. Prices are in SGD, exactly as printed on each menu.</p>
+
+  <div class="controls">
+    <input id="q" class="search" type="search" placeholder="Search a dish, drink or ingredient…" aria-label="Search dishes" autocomplete="off">
+    <div class="row" id="cuisines" role="group" aria-label="Filter by cuisine"></div>
+    <div class="row">
+      <div class="seg" role="group" aria-label="Food or drinks" id="kind">
+        <button data-k="all" aria-pressed="true">All</button>
+        <button data-k="food" aria-pressed="false">Food</button>
+        <button data-k="drinks" aria-pressed="false">Drinks</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="count" id="count" aria-live="polite"></div>
+  <div id="out"></div>
+
+  <details class="rest" id="connect" style="margin-top:28px"><summary><span class="rname" style="font-size:17px">Connect to the database</span><span class="meta">for setup only</span></summary>
+    <div class="body" style="padding-top:6px">
+      <p class="dd">Paste the two <strong>public</strong> values from Supabase (Project Settings &rarr; API). Never paste the database password here.</p>
+      <label class="dd" for="cu">Project URL</label><input id="cu" class="search" placeholder="https://xxxx.supabase.co" autocomplete="off" style="margin:4px 0 10px">
+      <label class="dd" for="ck">Public key (the &ldquo;anon&rdquo; or &ldquo;publishable&rdquo; key)</label><input id="ck" class="search" placeholder="eyJ... or sb_publishable_..." autocomplete="off" style="margin:4px 0 10px">
+      <button class="chip" id="csave" aria-pressed="true">Save and reload</button> <button class="chip" id="cclear">Disconnect</button>
+    </div></details>
+
+  <footer id="foot">
+    <strong>++</strong> means 10% service charge and GST are added to the price. Prices come from each restaurant's own menu and can change, so check the date shown under each menu.
+  </footer>
+</div>
+
+<!-- Optional sample data for trying the page without a database. Safe to delete this line. -->
+<script src="demo-data.js" onerror="void 0"></script>
+<script>
+/* ============ SETTINGS: fill these two in (both are PUBLIC values, safe in a web page) ============
+   Supabase dashboard > Project Settings > API:  "Project URL"  and the  "anon public" key.
+   NEVER put the database password, the connection string or the "service_role" key here.            */
+const SUPABASE_URL_SET = "https://bxpqdbqwarkljpuozypx.supabase.co";
+const SUPABASE_ANON_KEY_SET = "sb_publishable_buWHrxqWD8h7sDxj12qrgA_VzxEayXr";
+const REPORT_EMAIL = "";   // optional: shows a "report a wrong price" link if filled in
+/* ================================================================================================= */
+
+const $ = (s) => document.querySelector(s);
+const saved = (k) => { try { return localStorage.getItem(k) || ""; } catch { return ""; } };
+const SUPABASE_URL = SUPABASE_URL_SET || saved("mb_url");          // values typed into the Connect box are kept in this browser only
+const SUPABASE_ANON_KEY = SUPABASE_ANON_KEY_SET || saved("mb_key");
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fold = (s) => String(s ?? "").normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase();
+const safeUrl = (u) => (/^https?:\/\//i.test(u || "") ? u : null);
+const fmtDate = (d) => { try { return new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }); } catch { return ""; } };
+const isAddon = (r) => /^\W*(add|extra|change to|substitute|upgrade)\b/i.test(r.name) || /add[- ]?ons?\b/i.test(r.name) || /add[- ]?ons?|extras?/i.test(r.section || "");
+const isDrink = (r) => r.menu_type === "drinks";
+
+let ALL = [];                       // every public dish
+// Branches of one restaurant ("Lola's Cafe (TP)", "Lola's Cafe (HV)") are shown together under one name.
+// Only names that share the exact same text before the "(...)" are joined, so "Fu Yuan" and "Xiao Fu Yuan" stay separate.
+const brandOf = (name) => String(name).replace(/\s*\([^)]*\)\s*$/, "").trim();
+const branchOf = (name) => (String(name).match(/\(([^)]*)\)\s*$/) || [, ""])[1];
+let MULTI = new Set();               // brand names that have more than one location
+const entityKey = (r) => (MULTI.has(brandOf(r.restaurant_name)) ? "brand:" + brandOf(r.restaurant_name) : r.restaurant_slug);
+function indexBrands() {
+  const slugsByBrand = new Map();
+  for (const r of ALL) { const b = brandOf(r.restaurant_name); if (!slugsByBrand.has(b)) slugsByBrand.set(b, new Set()); slugsByBrand.get(b).add(r.restaurant_slug); }
+  MULTI = new Set([...slugsByBrand].filter(([, v]) => v.size > 1).map(([k]) => k));
+}
+const state = { q: "", cuisine: null, kind: "all" };
+
+async function loadAll() {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    if (window.DEMO_DATA) { $("#foot").insertAdjacentHTML("afterbegin", "<p><strong>Sample data.</strong> This page is not connected to a database yet.</p>"); return window.DEMO_DATA; }
+    throw new Error("Not connected yet. Use the Connect box at the bottom of the page.");
+  }
+  const cols = "restaurant_slug,restaurant_name,cuisines,source_label,source_url,last_checked_at,is_stale,item_id,menu_type,section,name,description,price_text,price_basis,dietary_marks,source_page";
+  const out = [], size = 1000;                       // Supabase returns at most 1000 rows per request
+  for (let off = 0; ; off += size) {
+    const url = `${SUPABASE_URL.replace(/\/$/, "")}/rest/v1/public_menu?select=${cols}&order=restaurant_slug,source_label,source_page,item_id&limit=${size}&offset=${off}`;
+    const res = await fetch(url, { headers: SUPABASE_ANON_KEY.startsWith("eyJ") ? { apikey: SUPABASE_ANON_KEY, Authorization: "Bearer " + SUPABASE_ANON_KEY } : { apikey: SUPABASE_ANON_KEY } });
+    if (!res.ok) throw new Error("The menu database answered with an error (" + res.status + "). If this keeps happening, the project may be paused.");
+    const batch = await res.json();
+    out.push(...batch);
+    if (batch.length < size) break;
+  }
+  return out;
+}
+
+function matches(r) {
+  if (state.cuisine && !(r.cuisines || []).includes(state.cuisine)) return false;
+  if (state.kind === "food" && isDrink(r)) return false;
+  if (state.kind === "drinks" && !isDrink(r)) return false;
+  if (!state.q) return true;
+  const hay = fold([r.name, r.description, r.section, r.restaurant_name].join(" "));
+  return fold(state.q).split(/\s+/).filter(Boolean).every((t) => hay.includes(t));
+}
+
+function hl(text) {
+  const t = esc(text);
+  if (!state.q) return t;
+  const terms = fold(state.q).split(/\s+/).filter((x) => x.length > 1).map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  if (!terms.length || fold(text).length !== String(text).length) return t;   // skip if folding changed length
+  return t.replace(new RegExp("(" + terms.join("|") + ")", "gi"), "<mark>$1</mark>");
+}
+
+function dishHtml(r) {
+  const marks = (r.dietary_marks || []).map((m) => `<span class="dm">${esc(m.replace("_", " "))}</span>`).join("");
+  return `<div class="dish"><div><div class="dn">${hl(r.name)}${marks}</div>${r.description ? `<div class="dd">${hl(r.description)}</div>` : ""}</div><div class="dp">${esc(r.price_text) || "—"}</div></div>`;
+}
+
+function menuHtml(rows) {
+  const regular = rows.filter((r) => !isAddon(r)), addons = rows.filter(isAddon);
+  let html = "", last = null;
+  for (const r of regular) {
+    if (r.section !== last) { html += `<div class="sect">${esc(r.section)}</div>`; last = r.section; }
+    html += dishHtml(r);
+  }
+  if (addons.length) html += `<div class="sect">Add-ons &amp; extras</div><div class="addons">${addons.map(dishHtml).join("")}</div>`;
+  return html;
+}
+
+function menusHtml(rows) {
+  const byMenu = new Map();
+  for (const r of rows) { const k = r.source_label + "|" + r.menu_type; if (!byMenu.has(k)) byMenu.set(k, []); byMenu.get(k).push(r); }
+  return [...byMenu.values()].map((mr) => {
+    const m = mr[0], link = safeUrl(m.source_url);
+    const stale = m.is_stale || (m.last_checked_at && Date.now() - new Date(m.last_checked_at) > 60 * 864e5);
+    return `<div class="menuhead"><h3>${esc(m.source_label.replace(/[-_]/g, " "))}</h3><span class="small">${m.last_checked_at ? "Checked " + esc(fmtDate(m.last_checked_at)) : ""}${stale ? '<span class="stale">may be out of date</span>' : ""}${link ? ` · <a href="${esc(link)}" rel="noopener noreferrer" target="_blank">original menu</a>` : ""}</span></div>${menuHtml(mr)}`;
+  }).join("");
+}
+
+function restaurantHtml(key, rows, open) {
+  const first = rows[0];
+  const multi = key.startsWith("brand:");
+  const dishes = rows.filter((r) => !isAddon(r)).length;
+  const newest = rows.map((r) => r.last_checked_at).filter(Boolean).sort().pop();
+  let body;
+  if (multi) {
+    const bySlug = new Map();
+    for (const r of rows) { if (!bySlug.has(r.restaurant_slug)) bySlug.set(r.restaurant_slug, []); bySlug.get(r.restaurant_slug).push(r); }
+    body = [...bySlug.values()].map((br) => `<div class="branch">${esc(branchOf(br[0].restaurant_name) || br[0].restaurant_name)}<span class="small"> · ${br.filter((r) => !isAddon(r)).length} items</span></div>${menusHtml(br)}`).join("");
+  } else body = menusHtml(rows);
+  const title = multi ? brandOf(first.restaurant_name) : first.restaurant_name;
+  const where = multi ? `<span class="tag">${new Set(rows.map((r) => r.restaurant_slug)).size} locations</span>` : "";
+  return `<details class="rest" ${open ? "open" : ""}><summary><span class="rname">${esc(title)}</span><span class="tags">${(first.cuisines || []).map((c) => `<span class="tag">${esc(c.replace("_", " "))}</span>`).join("")}${where}</span><span class="meta">${dishes} item${dishes === 1 ? "" : "s"}${newest ? " · checked " + esc(fmtDate(newest)) : ""}</span></summary><div class="body">${body}</div></details>`;
+}
+
+let shown = 12;
+function render() {
+  const searching = !!state.q;
+  let rows = ALL.filter(matches);
+  if (searching) rows = rows.filter((r) => !isAddon(r));   // add-ons are not "dishes" in search results
+  const groups = new Map();
+  for (const r of rows) { const k = entityKey(r); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(r); }
+  const slugs = [...groups.keys()];
+  const nDish = rows.filter((r) => !isAddon(r)).length;
+  $("#count").textContent = searching ? `${nDish} result${nDish === 1 ? "" : "s"} in ${slugs.length} restaurant${slugs.length === 1 ? "" : "s"}` : `${slugs.length} restaurant${slugs.length === 1 ? "" : "s"} · ${nDish} dishes and drinks`;
+  if (!slugs.length) { $("#out").innerHTML = '<div class="empty">Nothing matches. Try fewer words, or clear the filters.</div>'; return; }
+  const limit = searching ? shown : slugs.length;
+  let html = slugs.slice(0, limit).map((s) => restaurantHtml(s, groups.get(s), searching || slugs.length === 1)).join("");
+  if (slugs.length > limit) html += `<button class="chip more" id="more">Show more restaurants</button>`;
+  $("#out").innerHTML = html;
+  const more = $("#more"); if (more) more.onclick = () => { shown += 12; render(); };
+}
+
+function buildFilters() {
+  const counts = new Map();
+  const seen = new Set();
+  for (const r of ALL) { if (seen.has(entityKey(r))) continue; seen.add(entityKey(r)); for (const c of r.cuisines || []) counts.set(c, (counts.get(c) || 0) + 1); }
+  const box = $("#cuisines");
+  box.innerHTML = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([c, n]) => `<button class="chip" data-c="${esc(c)}" aria-pressed="false">${esc(c.replace("_", " "))} · ${n}</button>`).join("");
+  box.onclick = (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    state.cuisine = state.cuisine === b.dataset.c ? null : b.dataset.c;
+    box.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.c === state.cuisine)));
+    shown = 12; render();
+  };
+}
+
+$("#kind").onclick = (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  state.kind = b.dataset.k;
+  $("#kind").querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  shown = 12; render();
+};
+$("#cu").value = SUPABASE_URL; $("#ck").value = SUPABASE_ANON_KEY;
+$("#csave").onclick = () => { try { localStorage.setItem("mb_url", $("#cu").value.trim()); localStorage.setItem("mb_key", $("#ck").value.trim()); } catch {} location.reload(); };
+$("#cclear").onclick = () => { try { localStorage.removeItem("mb_url"); localStorage.removeItem("mb_key"); } catch {} location.reload(); };
+let t; $("#q").addEventListener("input", (e) => { clearTimeout(t); t = setTimeout(() => { state.q = e.target.value.trim(); shown = 12; render(); }, 120); });
+
+(async () => {
+  if (REPORT_EMAIL) $("#foot").insertAdjacentHTML("beforeend", ` Spotted a wrong price? <a href="mailto:${esc(REPORT_EMAIL)}?subject=Wrong%20price%20on%20Menu%20Browser">Tell us</a>.`);
+  $("#count").textContent = "Loading menus…";
+  try { ALL = await loadAll(); indexBrands(); buildFilters(); render(); }
+  catch (e) { $("#count").textContent = ""; $("#out").innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+})();
+</script>
+</body>
+</html>
