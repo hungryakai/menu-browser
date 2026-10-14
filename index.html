@@ -99,7 +99,7 @@
     </div></details>
 
   <footer id="foot">
-    <strong>++</strong> means 10% service charge and GST are added to the price. Prices come from each restaurant's own menu and can change, so check the date shown under each menu.
+    <strong>++</strong> means 10% service charge and GST are added to the price. Menus are copied from each restaurant's own published menu. Prices were checked on the date shown and may have changed, so please confirm with the restaurant before you go.
   </footer>
 </div>
 
@@ -260,6 +260,7 @@ $("#cclear").onclick = () => { try { localStorage.removeItem("mb_url"); localSto
 let t; $("#q").addEventListener("input", (e) => { clearTimeout(t); t = setTimeout(() => { state.q = e.target.value.trim(); shown = 12; render(); }, 120); });
 
 (async () => {
+  if (SUPABASE_URL_SET && SUPABASE_ANON_KEY_SET) $("#connect").remove();   // public site: no setup box
   if (REPORT_EMAIL) $("#foot").insertAdjacentHTML("beforeend", ` Spotted a wrong price? <a href="mailto:${esc(REPORT_EMAIL)}?subject=Wrong%20price%20on%20Menu%20Browser">Tell us</a>.`);
   $("#count").textContent = "Loading menus…";
   try { ALL = await loadAll(); indexBrands(); buildFilters(); render(); }
