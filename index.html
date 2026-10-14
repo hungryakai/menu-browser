@@ -93,7 +93,11 @@
   #billbar[hidden],#billwrap[hidden],#swap[hidden]{display:none}
   #billbar .bb{display:flex;justify-content:space-between;gap:12px;width:100%;max-width:820px;margin:0 auto}
   #billwrap{position:fixed;inset:0;z-index:40;display:flex;align-items:flex-end;justify-content:center;background:rgba(0,0,0,.45)}
-  .sheet{background:var(--card);color:var(--text);width:100%;max-width:560px;max-height:85vh;overflow:auto;border-radius:16px 16px 0 0;padding:18px 18px calc(18px + env(safe-area-inset-bottom));box-shadow:0 -8px 30px rgba(0,0,0,.25)}
+  .sheet{display:flex;flex-direction:column;background:var(--card);color:var(--text);width:100%;max-width:560px;max-height:85vh;overflow:hidden;border-radius:16px 16px 0 0;padding:18px 18px calc(18px + env(safe-area-inset-bottom));box-shadow:0 -8px 30px rgba(0,0,0,.25)}
+  #billbody{display:flex;flex-direction:column;min-height:0;flex:1 1 auto}
+  .sheethead{flex:none}
+  .blines{overflow-y:auto;flex:1 1 auto;min-height:60px;margin-top:8px;-webkit-overflow-scrolling:touch}
+  .bfoot{flex:none;border-top:1px solid var(--line);margin-top:2px}
   .sheet h2{font-family:Fraunces,serif;font-weight:500;font-size:22px;margin:0}
   .sheethead{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
   .xbtn{border:1px solid var(--line);background:transparent;color:var(--text);border-radius:999px;padding:6px 14px;font:inherit;font-size:13.5px;cursor:pointer}
@@ -101,7 +105,9 @@
   .bl .bn{font-size:14.5px;font-weight:500;min-width:0}
   .bl .bn small{display:block;color:var(--muted);font-weight:400;font-size:12.5px;margin-top:1px;text-transform:capitalize}
   .bl .bt{text-align:right;font-variant-numeric:tabular-nums;font-size:14.5px}
-  .btotal{display:flex;justify-content:space-between;padding:14px 0 4px;font-size:17px;font-weight:600;font-variant-numeric:tabular-nums}
+  .brows{padding-top:10px}
+  .brow{display:flex;justify-content:space-between;padding:3px 0;font-size:14px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .btotal{display:flex;justify-content:space-between;padding:10px 0 4px;margin-top:6px;border-top:1px solid var(--text);font-size:17px;font-weight:600;font-variant-numeric:tabular-nums}
   .bnote{color:var(--muted);font-size:12.5px;line-height:1.5;margin:4px 0 14px}
   #swap{position:fixed;left:12px;right:12px;bottom:72px;z-index:35;max-width:520px;margin:0 auto;background:var(--card);border:1px solid var(--accent);border-radius:12px;padding:12px 14px;box-shadow:0 6px 24px rgba(0,0,0,.25);font-size:14px;line-height:1.45}
   #swap .row{margin-top:8px}
@@ -154,6 +160,22 @@
 const SUPABASE_URL_SET = "https://bxpqdbqwarkljpuozypx.supabase.co";
 const SUPABASE_ANON_KEY_SET = "sb_publishable_buWHrxqWD8h7sDxj12qrgA_VzxEayXr";
 const REPORT_EMAIL = "";   // optional: shows a "report a wrong price" link if filled in
+
+/* ---- BILL RATES (whole percentages) ----
+   Menus are assumed to show prices BEFORE service charge and GST unless a menu says otherwise.
+   GST is charged on top of the service charge, as restaurants do in Singapore.
+   When GST goes up, change GST_PERCENT here and nowhere else. */
+const GST_PERCENT = 9;
+const SERVICE_PERCENT = 10;
+/* Exceptions, by restaurant id (slug). Use  service: 0  when the menu says "no service charge",
+   and  gst: 0  when it says prices already include GST. */
+const RESTAURANT_RATES = {
+  "two-man-bagel-house-tp": { service: 0 },   // menu prints "No service charge"
+  "two-man-bagel-house-hv": { service: 0 },
+  "two-man-bagel-house-jc": { service: 0 },
+  "two-man-bagel-house-nv": { service: 0 },
+  "two-man-bagel-house-pg": { service: 0 },
+};
 /* ================================================================================================= */
 
 const $ = (s) => document.querySelector(s);
@@ -260,6 +282,15 @@ try {
 const persist = () => { try { localStorage.setItem("mb_cart", JSON.stringify(CART)); } catch {} };
 const qtyOf = (id, o) => { const l = CART.lines.find((x) => x.k === id + "|" + o); return l ? l.qty : 0; };
 const billTotal = () => CART.lines.reduce((a, l) => a + l.cents * l.qty, 0);
+function ratesFor(slug) { const o = RESTAURANT_RATES[slug] || {}; return { service: o.service ?? SERVICE_PERCENT, gst: o.gst ?? GST_PERCENT }; }
+/* All money is counted in whole cents. Service charge is worked out first, then GST on (subtotal + service charge). */
+function billSums() {
+  const sub = billTotal(), r = ratesFor(CART.slug);
+  const svc = Math.round((sub * r.service) / 100);
+  const gst = Math.round(((sub + svc) * r.gst) / 100);
+  return { sub, svc, gst, total: sub + svc + gst, r };
+}
+const pct = (n) => String(+n.toFixed(2)) + "%";
 const billCount = () => CART.lines.reduce((a, l) => a + l.qty, 0);
 
 function ctlInner(r) {
@@ -306,15 +337,18 @@ function updateBar() {
   const n = billCount(), bar = $("#billbar");
   bar.hidden = n === 0; document.body.classList.toggle("has-bill", n > 0);
   $("#bbl").textContent = `Your bill · ${n} item${n === 1 ? "" : "s"}`;
-  $("#bbt").textContent = money(billTotal()) + "  ›";
+  $("#bbt").textContent = "est. " + money(billSums().total) + "  ›";
 }
 let lastFocus = null, clearArmed = 0;
 function renderBill() {
   $("#billbody").innerHTML = `<div class="sheethead"><div><h2>Your bill</h2><div class="dd">${esc(CART.rname)}</div></div><button class="xbtn" id="bclose">Close</button></div>
-    <div style="margin-top:8px">${CART.lines.map((l) => `<div class="bl"><div class="bn">${esc(l.name)}<small>${l.label ? esc(l.label) + " · " : ""}${money(l.cents)} each</small></div><span class="step"><button data-k="${esc(l.k)}" data-d="-1" aria-label="Remove one ${esc(l.name)}">&minus;</button><span>${l.qty}</span><button data-k="${esc(l.k)}" data-d="1" aria-label="Add one more ${esc(l.name)}">+</button></span><div class="bt">${money(l.cents * l.qty)}</div></div>`).join("")}</div>
-    <div class="btotal"><span>Subtotal</span><span>${money(billTotal())}</span></div>
-    <p class="bnote">Estimate at menu prices only. Service charge and GST are not included yet.</p>
-    <button class="xbtn" id="bclear">Clear bill</button>`;
+    <div class="blines">${CART.lines.map((l) => `<div class="bl"><div class="bn">${esc(l.name)}<small>${l.label ? esc(l.label) + " · " : ""}${money(l.cents)} each</small></div><span class="step"><button data-k="${esc(l.k)}" data-d="-1" aria-label="Remove one ${esc(l.name)}">&minus;</button><span>${l.qty}</span><button data-k="${esc(l.k)}" data-d="1" aria-label="Add one more ${esc(l.name)}">+</button></span><div class="bt">${money(l.cents * l.qty)}</div></div>`).join("")}</div>
+    <div class="bfoot">${(() => { const t = billSums(); return `<div class="brows"><div class="brow"><span>Subtotal</span><span>${money(t.sub)}</span></div>
+      <div class="brow"><span>${t.r.service ? "Service charge " + pct(t.r.service) : "Service charge"}</span><span>${t.r.service ? money(t.svc) : "none"}</span></div>
+      <div class="brow"><span>${t.r.gst ? "GST " + pct(t.r.gst) : "GST"}</span><span>${t.r.gst ? money(t.gst) : "included"}</span></div></div>
+      <div class="btotal"><span>Estimated total</span><span>${money(t.total)}</span></div>
+      <p class="bnote">${t.r.service ? "" : "This restaurant's menu says there is no service charge. "}An estimate: it assumes menu prices do not yet include ${t.r.gst ? "GST" : "tax"}${t.r.service ? " or service charge" : ""}, as most menus say. The restaurant's own bill is the one that counts.</p>`; })()}
+    <button class="xbtn" id="bclear">Clear bill</button></div>`;
   $("#bclose").onclick = closeBill;
   $("#bclear").onclick = () => { if (Date.now() - clearArmed < 3000) { clearArmed = 0; clearBill(); } else { clearArmed = Date.now(); $("#bclear").textContent = "Tap again to clear"; } };
 }
