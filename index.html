@@ -106,6 +106,7 @@
   .bl .bn small{display:block;color:var(--muted);font-weight:400;font-size:12.5px;margin-top:1px;text-transform:capitalize}
   .bl .bt{text-align:right;font-variant-numeric:tabular-nums;font-size:14.5px}
   .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
+  .xbtn:disabled{opacity:.55;cursor:default}
   .xbtn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
   .bl .qty{font-size:14px;color:var(--muted);text-align:center;min-width:44px;font-variant-numeric:tabular-nums}
   .brows{padding-top:10px}
@@ -189,6 +190,7 @@ const SUPABASE_ANON_KEY = SUPABASE_ANON_KEY_SET || saved("mb_key");
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const fold = (s) => String(s ?? "").normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase();
 const safeUrl = (u) => (/^https?:\/\//i.test(u || "") ? u : null);
+const fmtDay = (ms) => { try { return new Date(ms).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }); } catch { return ""; } };
 const fmtDate = (d) => { try { return new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }); } catch { return ""; } };
 const isAddon = (r) => /^\W*(add|extra|change to|substitute|upgrade)\b/i.test(r.name) || /add[- ]?ons?\b/i.test(r.name) || /add[- ]?ons?|extras?|build[- ]your[- ]own/i.test(r.section || "");
 const isDrink = (r) => r.menu_type === "drinks";
@@ -358,8 +360,32 @@ function totalsHtml(t, note) {
    Anything in a link is untrusted: readShared checks every field before the page uses it. */
 const b64e = (o) => { const bytes = new TextEncoder().encode(JSON.stringify(o)); let bin = ""; for (const x of bytes) bin += String.fromCharCode(x); return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); };
 const b64d = (s) => JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0))));
-const billUrl = () => location.href.split("#")[0] + "#bill=" + b64e({ v: 1, s: CART.slug, r: CART.rname, t: Date.now(), l: CART.lines.map((l) => [l.name, l.label, l.cents, l.qty]) });
-function readShared(hash) {
+const pageBase = () => location.href.split("#")[0];
+const billUrlV1 = () => pageBase() + "#bill=" + b64e({ v: 1, s: CART.slug, r: CART.rname, t: Date.now(), l: CART.lines.map((l) => [l.name, l.label, l.cents, l.qty]) });
+/* Newer, shorter links: a flat list [2, restaurant, day, name, label, cents, qty, name, label, ...] squeezed with the browser's built-in compression.
+   Browsers that cannot compress get the older, longer link, which every version of the page can still open. */
+const bytesToB64 = (u8) => { let bin = ""; for (const x of u8) bin += String.fromCharCode(x); return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); };
+const b64ToBytes = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+async function deflateBytes(u8) { const cs = new CompressionStream("deflate-raw"); const w = cs.writable.getWriter(); w.write(u8); w.close(); return new Uint8Array(await new Response(cs.readable).arrayBuffer()); }
+const MAX_UNPACKED = 65536;   // a link may never unpack to more than this many bytes (guards against "zip bombs")
+async function inflateBytes(u8) {
+  const ds = new DecompressionStream("deflate-raw"), w = ds.writable.getWriter();
+  w.write(u8).catch(() => {}); w.close().catch(() => {});
+  const rd = ds.readable.getReader(), parts = []; let n = 0;
+  for (;;) { const { done, value } = await rd.read(); if (done) break; n += value.length; if (n > MAX_UNPACKED) { rd.cancel().catch(() => {}); throw new Error("too big"); } parts.push(value); }
+  const out = new Uint8Array(n); let o = 0; for (const x of parts) { out.set(x, o); o += x.length; } return out;
+}
+async function billUrl() {
+  try {
+    if (typeof CompressionStream === "undefined") return billUrlV1();
+    const flat = [2, CART.slug, Math.floor((Date.now() - new Date().getTimezoneOffset() * 60000) / 864e5)];   // the sender's own calendar day
+    for (const l of CART.lines) flat.push(l.name, l.label, l.cents, l.qty);
+    const packed = bytesToB64(await deflateBytes(new TextEncoder().encode(JSON.stringify(flat))));
+    const url = pageBase() + "#b=" + packed, old = billUrlV1();
+    return url.length <= old.length ? url : old;
+  } catch { return billUrlV1(); }
+}
+function readV1(hash) {
   try {
     if (typeof hash !== "string" || !hash.startsWith("#bill=") || hash.length > 20000) return null;
     const d = b64d(hash.slice(6));
@@ -376,6 +402,34 @@ function readShared(hash) {
     return { slug, rname: String(d.r || "").slice(0, 200), t: Number.isFinite(d.t) ? d.t : 0, lines };
   } catch { return null; }
 }
+function readLines(arr, step, start) {
+  const lines = [];
+  for (let i = start; i < arr.length; i += step) {
+    const [name, label, cents, qty] = arr.slice(i, i + 4);
+    if (typeof name !== "string" || !name || !Number.isInteger(cents) || cents <= 0 || cents >= 1e7 || !Number.isInteger(qty) || qty < 1 || qty > 99) return null;
+    lines.push({ name: name.slice(0, 200), label: typeof label === "string" ? label.slice(0, 80) : "", cents, qty });
+    if (lines.length > 80) return null;
+  }
+  return lines.length ? lines : null;
+}
+async function readV2(hash) {
+  const d = JSON.parse(new TextDecoder().decode(await inflateBytes(b64ToBytes(hash.slice(3)))));
+  if (!Array.isArray(d) || d[0] !== 2 || d.length < 7 || (d.length - 3) % 4 !== 0) return null;
+  const slug = String(d[1] || ""), day = d[2];
+  if (!/^[a-z0-9-]{1,80}$/.test(slug) || !Number.isInteger(day) || day < 0 || day > 1e5) return null;
+  const lines = readLines(d, 4, 3);
+  return lines ? { slug, rname: "", t: day * 864e5, utc: true, lines } : null;
+}
+async function readShared(hash) {
+  try {
+    if (typeof hash !== "string" || hash.length > 20000) return null;
+    if (hash.startsWith("#bill=")) return readV1(hash);
+    if (hash.startsWith("#b=")) return await readV2(hash);
+    return null;
+  } catch { return null; }
+}
+const rnameFor = (slug) => { const r = ALL.find((x) => x.restaurant_slug === slug); return r ? r.restaurant_name : slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()); };
+let DATA_READY = false;
 function billText() {
   const t = billSums(), L = [`My bill at ${CART.rname}`, ""];
   for (const l of CART.lines) L.push(`${l.qty} × ${l.name}${l.label ? " (" + l.label + ")" : ""}  ${money(l.cents * l.qty)}`);
@@ -391,11 +445,11 @@ async function copyText(txt) {
 }
 function flash(btn, msg) { const old = btn.dataset.t || (btn.dataset.t = btn.textContent); btn.textContent = msg; setTimeout(() => { btn.textContent = old; }, 2200); }
 async function shareBill(btn) {
-  const text = billText(), url = billUrl();
+  const text = billText(), url = await billUrl();
   if (navigator.share) { try { await navigator.share({ title: "My bill at " + CART.rname, text, url }); return; } catch (e) { if (e && e.name === "AbortError") return; } }
   flash(btn, (await copyText(text + "\n\nOpen this bill: " + url)) ? "Copied ✓" : "Couldn't copy");
 }
-const leaveShared = () => { SHARED = null; try { if (location.hash.startsWith("#bill=")) history.replaceState(null, "", location.pathname + location.search); } catch {} };
+const leaveShared = () => { SHARED = null; try { if (/^#(b|bill)=/.test(location.hash)) history.replaceState(null, "", location.pathname + location.search); } catch {} };
 function matchKey(slug, l, used) {
   for (const r of ALL) {
     if (r.restaurant_slug !== slug || r.name !== l.name) continue;
@@ -407,15 +461,15 @@ function matchKey(slug, l, used) {
 let SHARED = null, replaceArmed = 0;
 function renderShared() {
   const d = SHARED, t = billSums(d.lines, d.slug);
-  $("#billbody").innerHTML = `<div class="sheethead"><div><h2>Shared bill</h2><div class="dd">${esc(d.rname)}${d.t ? " · shared " + esc(fmtDate(d.t)) : ""}</div></div><button class="xbtn" id="bclose">Close</button></div>
+  $("#billbody").innerHTML = `<div class="sheethead"><div><h2>Shared bill</h2><div class="dd">${esc(d.rname || rnameFor(d.slug))}${d.t ? " · shared " + esc(d.utc ? fmtDay(d.t) : fmtDate(d.t)) : ""}</div></div><button class="xbtn" id="bclose">Close</button></div>
     <div class="blines">${d.lines.map((l) => `<div class="bl"><div class="bn">${esc(l.name)}<small>${l.label ? esc(l.label) + " · " : ""}${money(l.cents)} each</small></div><span class="qty">× ${l.qty}</span><div class="bt">${money(l.cents * l.qty)}</div></div>`).join("")}</div>
-    <div class="bfoot">${totalsHtml(t, "Prices are as they were when this bill was shared. Menus change. Estimate only.")}<div class="actions"><button class="xbtn primary" id="buse">Use this bill</button></div></div>`;
+    <div class="bfoot">${totalsHtml(t, "Prices are as they were when this bill was shared. Menus change. Estimate only.")}<div class="actions"><button class="xbtn primary" id="buse" ${DATA_READY ? "" : "disabled"}>${DATA_READY ? "Use this bill" : "Loading menu…"}</button></div></div>`;
   $("#bclose").onclick = closeBill;
   $("#buse").onclick = () => {
     if (CART.lines.length && Date.now() - replaceArmed > 3000) { replaceArmed = Date.now(); $("#buse").textContent = "Replace my current bill?"; return; }
     replaceArmed = 0;
     const used = new Set();
-    CART = { slug: d.slug, rname: d.rname, lines: d.lines.map((l, i) => { const k = matchKey(d.slug, l, used) || "shared" + i + "|0"; used.add(k); return { k, name: l.name, label: l.label, cents: l.cents, qty: l.qty }; }) };
+    CART = { slug: d.slug, rname: d.rname || rnameFor(d.slug), lines: d.lines.map((l, i) => { const k = matchKey(d.slug, l, used) || "shared" + i + "|0"; used.add(k); return { k, name: l.name, label: l.label, cents: l.cents, qty: l.qty }; }) };
     leaveShared(); persist(); refreshCtl(null); updateBar(); renderBill();
   };
 }
@@ -533,15 +587,19 @@ $("#billwrap").addEventListener("click", (e) => { if (e.target.id === "billwrap"
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#billwrap").hidden) closeBill(); });
 let t; $("#q").addEventListener("input", (e) => { clearTimeout(t); t = setTimeout(() => { state.q = e.target.value.trim(); shown = 12; render(); }, 120); });
 
-const showSharedFromLink = () => { const d = readShared(location.hash); if (d) openShared(d); };
+const showNote = (msg) => { const el = $("#swap"); el.innerHTML = `${esc(msg)}<div class="row"><button class="chip" id="noteok" aria-pressed="true">OK</button></div>`; el.hidden = false; $("#noteok").onclick = () => { el.hidden = true; }; };
+const showSharedFromLink = async () => {
+  if (location.hash.startsWith("#b=") && typeof DecompressionStream === "undefined") { showNote("This bill link needs a newer browser. Ask the sender to use Copy as text instead."); return; }
+  const d = await readShared(location.hash); if (d) openShared(d);
+};
 window.addEventListener("hashchange", showSharedFromLink);
 (async () => {
   showSharedFromLink();
   if (SUPABASE_URL_SET && SUPABASE_ANON_KEY_SET) $("#connect").remove();   // public site: no setup box
   if (REPORT_EMAIL) $("#foot").insertAdjacentHTML("beforeend", ` Spotted a wrong price? <a href="mailto:${esc(REPORT_EMAIL)}?subject=Wrong%20price%20on%20Menu%20Browser">Tell us</a>.`);
   $("#count").textContent = "Loading menus…";
-  try { ALL = await loadAll(); ITEMS = new Map(ALL.map((r) => [idOf(r), r])); indexBrands(); buildFilters(); render(); updateBar(); }
-  catch (e) { $("#count").textContent = ""; $("#out").innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+  try { ALL = await loadAll(); ITEMS = new Map(ALL.map((r) => [idOf(r), r])); indexBrands(); buildFilters(); render(); updateBar(); DATA_READY = true; if (SHARED && !$("#billwrap").hidden) renderShared(); }
+  catch (e) { $("#count").textContent = ""; $("#out").innerHTML = `<div class="err">${esc(e.message)}</div>`; DATA_READY = true; if (SHARED && !$("#billwrap").hidden) renderShared(); }
 })();
 </script>
 </body>
