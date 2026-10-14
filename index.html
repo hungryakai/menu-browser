@@ -61,6 +61,7 @@
   .branch{margin:26px 0 0;padding:6px 10px;background:var(--accent-soft);border-radius:8px;font-family:Fraunces,serif;font-size:17px;font-weight:500}
   .branch .small{font-family:Inter,sans-serif;font-size:12px;color:var(--muted);font-weight:400}
   .addons .dn{font-weight:400;font-size:14px}
+  .subsect{font-size:12px;color:var(--muted);margin:10px 0 2px;font-style:italic}
   .empty,.err{color:var(--muted);text-align:center;padding:40px 0}
   .err{color:var(--warn)}
   .more{margin:10px 0}
@@ -122,7 +123,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const fold = (s) => String(s ?? "").normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase();
 const safeUrl = (u) => (/^https?:\/\//i.test(u || "") ? u : null);
 const fmtDate = (d) => { try { return new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }); } catch { return ""; } };
-const isAddon = (r) => /^\W*(add|extra|change to|substitute|upgrade)\b/i.test(r.name) || /add[- ]?ons?\b/i.test(r.name) || /add[- ]?ons?|extras?/i.test(r.section || "");
+const isAddon = (r) => /^\W*(add|extra|change to|substitute|upgrade)\b/i.test(r.name) || /add[- ]?ons?\b/i.test(r.name) || /add[- ]?ons?|extras?|build[- ]your[- ]own/i.test(r.section || "");
 const isDrink = (r) => r.menu_type === "drinks";
 
 let ALL = [];                       // every public dish
@@ -186,7 +187,12 @@ function menuHtml(rows) {
     if (r.section !== last) { html += `<div class="sect">${esc(r.section)}</div>`; last = r.section; }
     html += dishHtml(r);
   }
-  if (addons.length) html += `<div class="sect">Add-ons &amp; extras</div><div class="addons">${addons.map(dishHtml).join("")}</div>`;
+  if (addons.length) {
+    const bySec = new Map();
+    for (const r of addons) { if (!bySec.has(r.section)) bySec.set(r.section, []); bySec.get(r.section).push(r); }
+    const named = bySec.size > 1;                       // show a small label per group when there are several (e.g. Build your own: Proteins)
+    html += `<div class="sect">Add-ons &amp; extras</div><div class="addons">${[...bySec].map(([sec, rs]) => (named ? `<div class="subsect">${esc(sec)}</div>` : "") + rs.map(dishHtml).join("")).join("")}</div>`;
+  }
   return html;
 }
 
