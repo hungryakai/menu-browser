@@ -534,8 +534,29 @@ function dishHtml(r) {
   return `<div class="dish"><div class="dmain"><div class="dn">${hl(r.name)}${marks}</div>${r.description ? `<div class="dd">${hl(r.description)}</div>` : ""}</div><div class="dright"><div class="dp">${esc(r.price_text) || "—"}</div>${n === 1 ? ctlHtml(r) : ""}</div>${n > 1 ? ctlHtml(r) : ""}</div>`;
 }
 
+/* ---- Course order: Appetisers > Mains > Desserts > Drinks (restaurants tagged "bar" keep the menu's own order) ---- */
+const RE_DRINK = /\b(drinks?|beverages?|cocktails?|mocktails?|wines?|beers?|spirits?|whisk(?:e)?y|coffees?|teas?|juices?|sodas?|smoothies?|liqueurs?|champagne|sparkling|sake|soju|highballs?|shochu|gin|vodka|rum|tequila|bourbon|brandy|cognac|scotch|lagers?|ciders?|kombucha|lemonades?|milkshakes?|aperitifs?|digestifs?|water)\b/i;
+const RE_DESSERT = /\b(desserts?|sweets?|sweet endings?|ice[- ]?creams?|gelato|sorbets?|puddings?|cakes?|patisserie|waffles?|crepes?|baklava|kunafa|kunafe|dolce|soft serve|sundaes?|souffl[eé])\b/i;
+const RE_STARTER_NOT = /served with|add[- ]?ons?|burger|bowls?|sets?\b|platters?|omakase|moriawase|brunch|rice|noodles?|breads?|fried (and|&)|stir/i;
+const RE_STARTER = /\b(starters?|appeti[sz]ers?|mezze|meze|mezedes|tapas|small plates?|small bites?|smalls|tiny plates?|small bullets|first shots|nibbles?|snacks?|bites|soups?|salads?|dips?|dim ?sum|antipasti|antipasto|cold dishes|carpaccio|crudo|raw (&|and) cured|oysters?|entr[eé]es?|to begin|getting started|beginnings?|prelude|kudapan|pembuka|primi|zensai|otsumami|sashimi|nigiri|maki|handrolls?|hoso maki|tartare|caviar|hummus|papads?|pre[- ]?starters?|amuse|spreads|chilled starters)\b|^start$|^sushi\b|sashimi/i;
+function courseOf(sec, rows) {
+  if (rows.length && rows.filter((r) => isDrink(r)).length * 2 > rows.length) return 3;
+  const s = sec || "";
+  if (RE_DESSERT.test(s)) return 2;
+  if (RE_DRINK.test(s) && !RE_STARTER.test(s)) return 3;
+  if (RE_STARTER.test(s) && !RE_STARTER_NOT.test(s.replace(/starters?|appeti[sz]ers?/ig, ""))) return 0;
+  return 1;
+}
+function inCourseOrder(rows) {
+  const bySec = new Map();
+  for (const r of rows) { if (!bySec.has(r.section)) bySec.set(r.section, []); bySec.get(r.section).push(r); }
+  return [...bySec].map(([sec, rs], i) => ({ rs, c: courseOf(sec, rs), i })).sort((a, b) => a.c - b.c || a.i - b.i).flatMap((g) => g.rs);
+}
+const isBarPlace = (r) => (r.cuisines || []).includes("bar");
+
 function menuHtml(rows) {
-  const regular = rows.filter((r) => !isAddon(r)), addons = rows.filter(isAddon);
+  const regular0 = rows.filter((r) => !isAddon(r)), addons = rows.filter(isAddon);
+  const regular = rows.length && isBarPlace(rows[0]) ? regular0 : inCourseOrder(regular0);
   let html = "", last = null;
   for (const r of regular) {
     if (r.section !== last) { html += `<div class="sect">${esc(r.section)}</div>`; last = r.section; }
@@ -553,7 +574,10 @@ function menuHtml(rows) {
 function menusHtml(rows) {
   const byMenu = new Map();
   for (const r of rows) { const k = r.source_label + "|" + r.menu_type; if (!byMenu.has(k)) byMenu.set(k, []); byMenu.get(k).push(r); }
-  return [...byMenu.values()].map((mr) => {
+  const menuRank = (mr) => (mr.every((r) => isDrink(r)) ? 3 : mr.every((r) => courseOf(r.section, [r]) === 2) ? 2 : 1);
+  const menuList = [...byMenu.values()];
+  if (!(menuList.length && isBarPlace(menuList[0][0]))) menuList.sort((a, b) => menuRank(a) - menuRank(b));   // food menus first, then desserts, then drinks (stable)
+  return menuList.map((mr) => {
     const m = mr[0], link = safeUrl(m.source_url);
     const stale = m.is_stale || (m.last_checked_at && Date.now() - new Date(m.last_checked_at) > 60 * 864e5);
     return `<div class="menuhead"><h3>${esc(m.source_label.replace(/[-_]/g, " "))}</h3><span class="small">${m.last_checked_at ? "Checked " + esc(fmtDate(m.last_checked_at)) : ""}${stale ? '<span class="stale">may be out of date</span>' : ""}${link ? ` · <a href="${esc(link)}" rel="noopener noreferrer" target="_blank">original menu</a>` : ""}</span></div>${menuHtml(mr)}`;
