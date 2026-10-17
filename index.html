@@ -66,6 +66,10 @@
   .dd{font-size:13.5px;color:var(--muted);margin-top:2px;line-height:1.45}
   .dp{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap;font-size:15px}
   .dm{font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:0 5px;margin-left:6px;vertical-align:middle;text-transform:capitalize}
+  .closebtn{display:block;width:100%;margin:14px 0 0;padding:11px;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--muted);font:inherit;font-size:14px;cursor:pointer}
+  .closebtn:hover{border-color:var(--accent);color:var(--text)}
+  #closer{position:fixed;right:16px;bottom:16px;z-index:20;max-width:calc(100vw - 32px);padding:11px 16px;border-radius:999px;border:0;background:var(--accent);color:#fff;font:inherit;font-size:14px;font-weight:500;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.35);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  body.has-bill #closer{bottom:76px}
   .branch{margin:26px 0 0;padding:6px 10px;background:var(--accent-soft);border-radius:8px;font-family:Fraunces,serif;font-size:17px;font-weight:500}
   .branch .small{font-family:Inter,sans-serif;font-size:12px;color:var(--muted);font-weight:400}
   .addons .dn{font-weight:400;font-size:14px}
@@ -152,6 +156,7 @@
   </footer>
 </div>
 
+<button id="closer" hidden aria-label="Close this restaurant">Close restaurant ▲</button>
 <button id="billbar" hidden aria-haspopup="dialog"><span class="bb"><span id="bbl"></span><span id="bbt"></span></span></button>
 <div id="swap" role="alert" hidden></div>
 <div id="billwrap" hidden><div class="sheet" role="dialog" aria-modal="true" aria-labelledby="bh"><div id="billbody"></div></div></div>
@@ -580,7 +585,7 @@ function menusHtml(rows) {
   return menuList.map((mr) => {
     const m = mr[0], link = safeUrl(m.source_url);
     const stale = m.is_stale || (m.last_checked_at && Date.now() - new Date(m.last_checked_at) > 60 * 864e5);
-    return `<div class="menuhead"><h3>${esc(m.source_label.replace(/[-_]/g, " "))}</h3><span class="small">${m.last_checked_at ? "Checked " + esc(fmtDate(m.last_checked_at)) : ""}${stale ? '<span class="stale">may be out of date</span>' : ""}${link ? ` · <a href="${esc(link)}" rel="noopener noreferrer" target="_blank">original menu</a>` : ""}</span></div>${menuHtml(mr)}`;
+    return `<div class="menuhead"><h3>${esc(m.source_label.replace(/[-_]/g, " "))}${m.menu_type === "drinks" && !/drink|beverage|bar|wine|cocktail|bev/i.test(m.source_label) ? " · Drinks" : ""}</h3><span class="small">${m.last_checked_at ? "Checked " + esc(fmtDate(m.last_checked_at)) : ""}${stale ? '<span class="stale">may be out of date</span>' : ""}${link ? ` · <a href="${esc(link)}" rel="noopener noreferrer" target="_blank">original menu</a>` : ""}</span></div>${menuHtml(mr)}`;
   }).join("");
 }
 
@@ -597,8 +602,39 @@ function restaurantHtml(key, rows, open) {
   } else body = menusHtml(rows);
   const title = multi ? brandOf(first.restaurant_name) : first.restaurant_name;
   const where = multi ? `<span class="tag">${new Set(rows.map((r) => r.restaurant_slug)).size} locations</span>` : "";
-  return `<details class="rest" ${open ? "open" : ""}><summary><span class="rname">${esc(title)}</span><span class="tags">${(first.cuisines || []).map((c) => `<span class="tag">${esc(c.replace("_", " "))}</span>`).join("")}${where}</span><span class="meta">${dishes} item${dishes === 1 ? "" : "s"}${newest ? " · checked " + esc(fmtDate(newest)) : ""}</span></summary><div class="body">${body}</div></details>`;
+  return `<details class="rest" ${open ? "open" : ""}><summary><span class="rname">${esc(title)}</span><span class="tags">${(first.cuisines || []).map((c) => `<span class="tag">${esc(c.replace("_", " "))}</span>`).join("")}${where}</span><span class="meta">${dishes} item${dishes === 1 ? "" : "s"}${newest ? " · checked " + esc(fmtDate(newest)) : ""}</span></summary><div class="body">${body}<button class="closebtn" type="button" data-close>Close ${esc(title)} ▲</button></div></details>`;
 }
+
+
+/* ---- Close the restaurant you are reading without scrolling back up ---- */
+function pinnedHeight() { const c = document.querySelector(".controls"); return c && getComputedStyle(c).position === "sticky" ? c.getBoundingClientRect().height : 0; }
+function closeRest(det) {
+  if (!det) return;
+  det.open = false;
+  const top = det.getBoundingClientRect().top + window.scrollY - pinnedHeight() - 8;
+  window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+  updateCloser();
+}
+let closerTarget = null, closerTick = false;
+function updateCloser() {
+  closerTick = false;
+  const btn = $("#closer"); if (!btn) return;
+  const edge = pinnedHeight();
+  closerTarget = null;
+  for (const d of document.querySelectorAll("details.rest[open]")) {
+    const sm = d.querySelector("summary").getBoundingClientRect(), bd = d.getBoundingClientRect();
+    if (sm.bottom < edge + 8 && bd.bottom > window.innerHeight * 0.35) { closerTarget = d; break; }   // header scrolled away, restaurant still on screen
+  }
+  btn.hidden = !closerTarget;
+  if (closerTarget) btn.textContent = "Close " + (closerTarget.querySelector(".rname")?.textContent || "restaurant") + " ▲";
+}
+window.addEventListener("scroll", () => { if (!closerTick) { closerTick = true; requestAnimationFrame(updateCloser); } }, { passive: true });
+window.addEventListener("resize", updateCloser);
+document.addEventListener("click", (e) => {
+  if (e.target.closest("#closer")) { closeRest(closerTarget); return; }
+  const b = e.target.closest("[data-close]"); if (b) closeRest(b.closest("details.rest"));
+});
+document.addEventListener("toggle", updateCloser, true);
 
 let shown = 12;
 function render() {
